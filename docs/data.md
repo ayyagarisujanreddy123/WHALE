@@ -1,44 +1,70 @@
-# Datasets
+# Dataset preparation
 
-Every domain uses three disjoint roles, matching the paper:
+Each domain exposes one canonical data-preparation entrypoint under
+`domains/<domain>/scripts/`:
 
-| Role | Symbol | What it feeds |
+| Domain | Entrypoint |
+|---|---|
+| Search QA (Search-R1) | `prepare_search_qa_data.py` |
+| Mathematical Reasoning (ReTool) | `prepare_math_reasoning_data.py` |
+| Chess Puzzles (Lichess) | `prepare_chess_puzzle_data.py` |
+
+All three entrypoints use `--seed 42` by default and prepare the data roles used
+by the experiments:
+
+| Role | Symbol | Consumer |
 |---|---|---|
-| Weight-update training | `D_weight` | the RSFT rollouts and the SFT step over verifier-accepted trajectories |
-| Harness-search training | `D_harness` | scoring candidate harnesses inside Meta-Harness |
-| Test | `D_test` | the reported `mean@8` accuracy; never seen during training or search |
+| RSFT training | `D_weight` | rollout generation and verifier-accepted SFT updates |
+| MH training | `D_harness` | candidate-harness scoring |
+| Test | `D_test` | reported held-out evaluation |
 
-`D_harness` holds 256 examples in every domain, and every candidate harness is
-evaluated with one rollout per example, so a harness-search iteration costs
-`256 x M` rollouts, where `M = 3` is the number of candidates proposed per
-iteration.
+Search QA and Mathematical Reasoning historically sampled `D_harness` from
+`D_weight`. Chess makes all three roles position-disjoint. The scripts preserve
+those protocols rather than imposing a new split policy.
 
-Nothing below is committed to this repository; the commands regenerate it.
+The one-off Search QA and ReTool generators were not retained in their source
+Git histories; their deterministic rules were recovered from the retained
+parquet artifacts. The reconstructed outputs were compared with those
+artifacts, including row order. The Lichess split/de-duplication logic was
+retained in its source repository and is consolidated into its canonical
+entrypoint here.
+
+Generated parquet files are not committed to this release repository.
 
 ---
 
 ## 1. Search QA
 
-**Source.** The Search-R1 question-answering mixture, built from the public
-Natural Questions, TriviaQA, PopQA, HotpotQA, 2WikiMultihopQA, MuSiQue and
-Bamboogle datasets, plus the 2018 Wikipedia dump used as the retrieval corpus.
-
-### 1.1 QA splits
+**Source inputs.** The retained 19,202-row cleaned NQ/HotpotQA training pool,
+the earlier balanced 256-row exclusion set, and the full seven-source Search-R1
+test mixture.
 
 ```bash
 cd domains/search_qa
-python scripts/data_process/qa_search_train_merge.py \
-    --local_dir data/nq_hotpotqa_train --data_sources nq,hotpotqa
-python scripts/data_process/qa_search_test_merge.py \
-    --local_dir data/nq_hotpotqa_train \
-    --data_sources nq,triviaqa,popqa,hotpotqa,2wikimultihopqa,musique,bamboogle
+python scripts/prepare_search_qa_data.py
 ```
 
-- **`D_weight`** — the merged `nq,hotpotqa` train file, 18,946 questions.
-- **`D_test`** — the merged seven-dataset test file. The paper reports each of
-  the seven benchmarks separately and their average.
+The single entrypoint performs both training and evaluation splitting:
 
-### 1.2 Retrieval corpus and index
+| Output | Rows | Construction |
+|---|---:|---|
+| `data/searchR1_processed/train_filtered_20000-mh256.parquet` | 18,946 | `D_weight`; remove the earlier 128-NQ/128-HotpotQA exclusion set |
+| `data/searchR1_processed/mh_dist_align_256.parquet` | 256 | `D_harness`; sample 200 HotpotQA and 56 NQ rows from `D_weight`, then reshuffle |
+| `data/searchR1_processed/test_100.parquet` | 700 | validation; independently sample 100 rows from each of seven test sources |
+| `data/searchR1_processed/final_test_minus_test_100.parquet` | 51,013 | `D_test`; full test mixture minus validation |
+
+Training rows are matched by `(data_source, extra_info.index)`, with normalized
+question text as a defensive exclusion cross-check. Test rows use the
+structural key. The script validates the exact row counts, expected seven test
+sources, uniqueness, MH membership in RSFT, and zero validation/test overlap.
+
+The original Search-R1 repository did retain
+`scripts/data_process/build_final_test_excluding_val.py`; it remains checked in
+for provenance and standalone use. Older NQ-only, no-tool, and legacy FlashRAG
+builders in `scripts/data_process/` are experiment variants, not additional
+steps required by this canonical split.
+
+### Retrieval corpus and index
 
 ```bash
 python scripts/download.py --save_path data/wiki-18
@@ -46,68 +72,65 @@ cat data/wiki-18/part_* > data/wiki-18/e5_Flat.index
 gzip -d data/wiki-18/wiki-18.jsonl.gz
 ```
 
-This is a flat FAISS index over `intfloat/e5-base-v2` embeddings of the 2018
-Wikipedia dump, roughly 75 GB. `search_r1/search/index_builder.py` rebuilds it
-from scratch if you prefer; `search_r1/search/retrieval_server_async.py` serves
-it during training and harness search.
-
-### 1.3 Harness-search and evaluation subsets
-
-```bash
-python scripts/data_process/build_meta_harness_nq_256.py     # D_harness, 256 examples
-python scripts/data_process/build_nq_eval_256.py             # 256-question NQ eval
-python scripts/data_process/build_test_100_no_tool.py        # 100-question smoke test
-python scripts/data_process/build_final_test_excluding_val.py
-python scripts/data_process/build_meta_harness_eval.py
-```
-
-`data/searchR1_processed/mh_dist_align_256.parquet` is `D_harness` and is the
-default `EVAL_DATASET_PATH` of every alternating run.
+This downloads the 2018 Wikipedia retrieval corpus and flat FAISS index used by
+Search-R1. `search_r1/search/index_builder.py` can rebuild the index, while
+`search_r1/search/retrieval_server_async.py` serves it during training and
+harness search.
 
 ---
 
 ## 2. Mathematical Reasoning
 
-**Source.** DAPO-Math-17K for training, AIME 2024 and AIME 2025 for testing.
+**Source.** `BytedTsinghua-SIA/DAPO-Math-17k` for RSFT/MH; AIME 2024 and AIME
+2025 for held-out test.
 
-- **`D_weight`** — `data/retool/dapo_math_17k_dedup.parquet`, the de-duplicated
-  DAPO-Math-17K split, 17,917 problems.
-- **`D_harness`** — `data/retool/meta_harness_dapo17k_dedup_seed42_256.parquet`,
-  256 problems sampled from the same pool with seed 42.
-- **`D_test`** — AIME 2024 (`Maxwell-Jia/AIME_2024`) and AIME 2025
-  (`yentinglin/aime_2025`) from the Hugging Face Hub, 30 problems each.
+```bash
+cd domains/math_reasoning
+python scripts/prepare_math_reasoning_data.py
+```
 
-Download the two source datasets from the Hub, de-duplicate DAPO-Math-17K, and
-write both parquet files under `domains/math_reasoning/data/retool/`. The
-harness-search subset must be drawn from the training pool, not from AIME, so
-that the test sets stay unseen.
+| Output | Rows | Construction |
+|---|---:|---|
+| `data/retool/dapo_math_17k_dedup.parquet` | 17,917 | `D_weight`; keep the first occurrence of each `extra_info.index` |
+| `data/retool/meta_harness_dapo17k_dedup_seed42_256.parquet` | 256 | `D_harness`; `Dataset.shuffle(seed=42).select(range(256))` |
 
-Helper builders used while preparing SFT-style variants live in `scripts/`:
-`build_sft_from_mh_trajectories.py` and `build_sft_from_rollout_jsonl.py`.
+The source observed by the experiment exposed the same 17,917 DAPO examples
+repeatedly. The script streams the source, rejects conflicting duplicate IDs,
+validates the final row count, and annotates the retained MH sample metadata.
+
+The trainer loads `Maxwell-Jia/AIME_2024` and `yentinglin/aime_2025` directly,
+30 rows each. They do not undergo a local split or de-duplication step, so the
+canonical preparation script does not create redundant test parquets.
 
 ---
 
 ## 3. Chess Puzzles
 
-**Source.** The Lichess open puzzle database.
+**Source.** `Lichess/chess-puzzles`.
 
 ```bash
 cd domains/chess_puzzles
-python scripts/prepare_chess_puzzle_data.py --output-dir data/chess_puzzle
+python scripts/prepare_chess_puzzle_data.py
 ```
 
-The builder streams the database, keeps puzzles whose solution is between
-`--min-solution-plies 1` and `--max-solution-plies 9`, and writes three parquet
-files with `--seed 42`:
+| Output | Rows | Role |
+|---|---:|---|
+| `data/chess_puzzle/lichess_puzzles_train_16384.parquet` | 16,384 | `D_weight` |
+| `data/chess_puzzle/lichess_puzzles_mh_val_256.parquet` | 256 | `D_harness` |
+| `data/chess_puzzle/lichess_puzzles_test_256.parquet` | 256 | `D_test` |
 
-| File | Default size | Role |
-|---|---|---|
-| `lichess_puzzles_train_16384.parquet` | `--train-size 16384` | `D_weight` |
-| `lichess_puzzles_mh_val_256.parquet` | `--mh-val-size 256` | `D_harness` |
-| `lichess_puzzles_test_1024.parquet` | `--test-size 1024` | pool for `D_test` |
+The entrypoint consolidates the split/de-duplication implementation formerly
+stored in `autoharness_chess_puzzle/grpo_dataset.py`. It reads the Hub parquet
+shards in bounded batches, validates legal move sequences with `python-chess`,
+keeps solutions between 1 and 9 plies, globally de-duplicates by starting
+position and side to move, and uses a second stable hash for deterministic split
+assignment. It validates uniqueness and pairwise disjointness before writing;
+the manifest records the configuration, output paths, counts, and overlap result.
+The old module path remains as a thin compatibility shim and contains no second
+copy of the preparation logic.
 
-The paper evaluates on 256 test puzzles drawn from the test pool. The three
-splits are disjoint by construction.
+Pass `--test-size 1024` only to reproduce the larger auxiliary test pool; the
+reported experiment uses 256 test positions.
 
 ---
 
