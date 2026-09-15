@@ -21,7 +21,7 @@
   "eval": {
     "num_train_examples": 0,
     "num_eval_examples": 256,
-    "eval_dataset_path": "",
+    "eval_dataset_path": "data/retool/meta_harness_dapo17k_dedup_seed42_256.parquet",
     "temperature": 1.0,
     "top_p": 1.0,
     "top_k": 20,

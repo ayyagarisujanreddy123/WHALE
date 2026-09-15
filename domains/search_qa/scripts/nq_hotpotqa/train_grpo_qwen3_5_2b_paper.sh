@@ -123,7 +123,7 @@
 #   TRAINER_TEST_FREQ     default 7   (0.1 epoch for 4480 NQ rows / batch 64)
 #   TRAINER_MAX_KEEP      default null  (keep all checkpoints; integer for rotation)
 #   TRAINER_TOTAL_EPOCHS  default 4
-#   TRAIN_FILES           default data/searchR1_processed/train_nq_single.parquet
+#   TRAIN_FILES           default data/searchR1_processed/train_filtered_20000-mh256.parquet (D_weight from scripts/prepare_search_qa_data.py)
 #   VAL_FILES             default data/searchR1_processed/test_100.parquet (nq256 deprecated)
 #   RESUME_MODE           default disable   (verl only recognises "disable" /
 #                                            "auto" / "resume_path"; booleans
@@ -251,7 +251,7 @@ TRAINER_SAVE_FREQ="${TRAINER_SAVE_FREQ:-7}"
 TRAINER_TEST_FREQ="${TRAINER_TEST_FREQ:-7}"
 TRAINER_MAX_KEEP="${TRAINER_MAX_KEEP:-null}"
 TRAINER_TOTAL_EPOCHS="${TRAINER_TOTAL_EPOCHS:-4}"
-TRAIN_FILES="${TRAIN_FILES:-$DATA_DIR/train_nq_single.parquet}"
+TRAIN_FILES="${TRAIN_FILES:-$DATA_DIR/train_filtered_20000-mh256.parquet}"
 # nq256 is deprecated — test_100 (7 datasets x 100 = 700 rows) is ALWAYS the default val set.
 VAL_FILES="${VAL_FILES:-$DATA_DIR/test_100.parquet}"
 RESUME_MODE="${RESUME_MODE:-disable}"

@@ -72,7 +72,7 @@ parallel_harness_evals = 3                    # evaluate 3 proposed harnesses co
 n                    = 1                      # one rollout per MH validation sample
 enable_thinking      = true                   # Qwen3.5: true = activate <think> reasoning (semantics inverted vs Qwen3-1.7B)
 seeds                = [42]
-eval_dataset_path    = "data/searchR1_processed/train_meta_harness_nq_256.parquet"
+eval_dataset_path    = "data/searchR1_processed/mh_dist_align_256.parquet"   # D_harness from scripts/prepare_search_qa_data.py
 max_failures_logged  = 5
 max_successes_logged = 2
 

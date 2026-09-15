@@ -50,8 +50,18 @@ The single entrypoint performs both training and evaluation splitting:
 |---|---:|---|
 | `data/searchR1_processed/train_filtered_20000-mh256.parquet` | 18,946 | `D_weight`; remove the earlier 128-NQ/128-HotpotQA exclusion set |
 | `data/searchR1_processed/mh_dist_align_256.parquet` | 256 | `D_harness`; sample 200 HotpotQA and 56 NQ rows from `D_weight`, then reshuffle |
-| `data/searchR1_processed/test_100.parquet` | 700 | validation; independently sample 100 rows from each of seven test sources |
-| `data/searchR1_processed/final_test_minus_test_100.parquet` | 51,013 | `D_test`; full test mixture minus validation |
+| `data/searchR1_processed/test_100.parquet` | 700 | `D_test`; independently sample 100 rows from each of the seven test sources. This is the evaluation set reported in the paper (`VAL_FILES` of the training driver) |
+| `data/searchR1_processed/final_test_minus_test_100.parquet` | 51,013 | auxiliary held-out pool: full test mixture minus `D_test`; not used for the reported results |
+
+The two training-side inputs (the 19,202-row cleaned pool and the 256-row
+exclusion set) are intermediate artifacts of the original experiment. Their
+generators were not retained and the files are not distributed with this
+repository, so `D_weight` and `D_harness` cannot be rebuilt from the public
+sources with this repository alone; `test.parquet` is produced by
+`scripts/data_process/qa_search_test_merge.py`. The launchers default to the
+outputs above: `TRAIN_FILES=train_filtered_20000-mh256.parquet`,
+`VAL_FILES=test_100.parquet`, and `eval_dataset_path=mh_dist_align_256.parquet`
+in `configs/meta_harness/searchr1.toml`.
 
 Training rows are matched by `(data_source, extra_info.index)`, with normalized
 question text as a defensive exclusion cross-check. Test rows use the
@@ -98,6 +108,10 @@ The source observed by the experiment exposed the same 17,917 DAPO examples
 repeatedly. The script streams the source, rejects conflicting duplicate IDs,
 validates the final row count, and annotates the retained MH sample metadata.
 
+`meta_harness/config-retool.json` points `eval_dataset_path` at the `D_harness`
+file above. The DAPO source is read from the Hub without a pinned revision; the
+script checks that de-duplication yields exactly 17,917 rows.
+
 The trainer loads `Maxwell-Jia/AIME_2024` and `yentinglin/aime_2025` directly,
 30 rows each. They do not undergo a local split or de-duplication step, so the
 canonical preparation script does not create redundant test parquets.
@@ -129,8 +143,14 @@ the manifest records the configuration, output paths, counts, and overlap result
 The old module path remains as a thin compatibility shim and contains no second
 copy of the preparation logic.
 
-Pass `--test-size 1024` only to reproduce the larger auxiliary test pool; the
-reported experiment uses 256 test positions.
+The reported experiment was generated with exactly these sizes (16,384 / 256 /
+256) and `--seed 42`. Split assignment hashes each position together with the
+seed and takes the remainder modulo the sum of the three sizes, so changing any
+size changes the partition of every puzzle; keep the defaults to reproduce the
+paper's splits. `--test-size 1024` produces a larger auxiliary pool that was
+not used for the reported results. The Hub dataset `Lichess/chess-puzzles` is
+updated over time and no revision is pinned, so an identical reproduction also
+requires the same snapshot of that dataset.
 
 ---
 
