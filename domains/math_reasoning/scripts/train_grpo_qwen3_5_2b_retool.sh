@@ -20,7 +20,7 @@ RETOOL_RECIPE_DIR="${RETOOL_RECIPE_DIR:-$PROJECT_DIR/verl-recipe/retool}"
 }
 RETOOL_RECIPE_PATCH="${RETOOL_RECIPE_PATCH:-$PROJECT_DIR/patches/verl-recipe-retool-local.patch}"
 if [[ "${APPLY_RETOOL_RECIPE_PATCH:-auto}" != "false" && -f "$RETOOL_RECIPE_PATCH" ]] &&
-    ! grep -q "class CustomSandboxFusionTool(BaseTool)" "$RETOOL_RECIPE_DIR/retool.py"; then
+    ! grep -q "class CustomSandboxFusionTool" "$RETOOL_RECIPE_DIR/retool.py"; then
     RECIPE_GIT_ROOT="$(git -C "$RETOOL_RECIPE_DIR" rev-parse --show-toplevel 2>/dev/null || true)"
     if [[ -z "$RECIPE_GIT_ROOT" ]]; then
         echo "[retool_grpo] ERROR: ReTool recipe patch is needed, but $RETOOL_RECIPE_DIR is not in a git worktree" >&2
@@ -29,7 +29,7 @@ if [[ "${APPLY_RETOOL_RECIPE_PATCH:-auto}" != "false" && -f "$RETOOL_RECIPE_PATC
     echo "[retool_grpo] applying local ReTool recipe patch: $RETOOL_RECIPE_PATCH"
     git -C "$RECIPE_GIT_ROOT" apply "$RETOOL_RECIPE_PATCH"
 fi
-if ! grep -q "class CustomSandboxFusionTool(BaseTool)" "$RETOOL_RECIPE_DIR/retool.py"; then
+if ! grep -q "class CustomSandboxFusionTool" "$RETOOL_RECIPE_DIR/retool.py"; then
     echo "[retool_grpo] ERROR: ReTool recipe patch is missing. Set APPLY_RETOOL_RECIPE_PATCH=false only with a compatible recipe." >&2
     exit 1
 fi
